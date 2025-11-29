@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import tomllib
 
 from typing import TYPE_CHECKING
@@ -46,9 +47,27 @@ def lint(session: Session) -> None:
 
 
 @nox.session
+def clean(session: Session) -> None:
+    """Clean all unnecessery files before commiting."""
+    paths_to_remove = [
+        Path(".nox"),
+        Path(".ruff_cache"),
+    ]
+
+    pycache_dirs = list(Path().glob("**/__pycache__"))
+    paths_to_remove.extend(pycache_dirs)
+
+    for path in paths_to_remove:
+        if path.exists() and path.is_dir():
+            session.log(f"Removing {path}")
+            shutil.rmtree(path)
+
+
+@nox.session
 def commit(session: Session) -> None:
     """Commit session: `nox -s lint` + `git add .` + `cz commit` + git push."""
     session.run("nox", "-s", "lint", external=True)
+    session.run("nox", "-s", "clean", external=True)
 
     session.run("git", "add", ".", external=True)
     session.run("cz", "commit", external=True)
