@@ -109,7 +109,7 @@ class Parser:
 
                         links.add(link)
                         with Path("links.txt").open("a") as file:  # noqa: ASYNC230
-                            _ = file.write(link)
+                            _ = file.write("\n" + link)
                     await asyncio.sleep(SLEEP_BETWEEN_INTERACTIONS)
             except asyncio.CancelledError:
                 raise
