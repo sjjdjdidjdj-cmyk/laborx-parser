@@ -14,9 +14,13 @@ from typing import cast
 from pathlib import Path
 
 from dotenv import get_key
-from aiogram import Bot
+from aiogram import F, Bot, Dispatcher
 from aiohttp import ClientSession
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
 from selectolax.lexbor import LexborHTMLParser
 
 URL = "https://laborx.com/jobs"
@@ -32,12 +36,24 @@ class Parser:
     def __init__(self) -> None:
         """Initialize a new Parser."""
         self.bot: Bot = Bot(token=cast("str", get_key(".env", "TOKEN")))
+        self.dp: Dispatcher = Dispatcher()
+
         self.id_admins: list[str] = [
             key.strip()
             for key in cast("str", get_key(".env", "ID")).split(",")
         ]
         self.task: asyncio.Task[None] | None = None
+
         logger.info("Initialised.")
+
+    async def run(self) -> None:
+        """Run the parser and bot polling."""
+        _ = self.dp.callback_query.register(
+            self._delete_message_callback, F.data == "delete_message"
+        )
+        self.dp.startup.register(self.start_parsing)
+        self.dp.shutdown.register(self.stop_parsing)
+        await self.dp.start_polling(self.bot)  # pyright: ignore[reportUnknownMemberType]
 
     async def start_parsing(self) -> None:
         """Start parsing (creates asyncio.Task to background)."""
@@ -104,7 +120,7 @@ class Parser:
                         with Path("links.txt").open("a") as file:  # noqa: ASYNC230
                             _ = file.write("\n" + link)
                     await asyncio.sleep(SLEEP_BETWEEN_INTERACTIONS)
-            except asyncio.CancelledError:
+            except (asyncio.CancelledError, KeyboardInterrupt):
                 raise
             except BaseException:
                 logger.exception("Critical error of work:")
@@ -172,6 +188,8 @@ class Parser:
                 user=cast("str", user),
                 skills=skills,
             )
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
         except Exception:
             logger.exception(f"Error parsing new link {link}")
 
@@ -207,7 +225,13 @@ class Parser:
                         text="Job Link",
                         url=link,
                     ),
-                ]
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="Delete Message",
+                        callback_data="delete_message",
+                    )
+                ],
             ]
         )
 
@@ -219,15 +243,22 @@ class Parser:
                     parse_mode="HTML",
                     reply_markup=keyboard,
                 )
+            except (KeyboardInterrupt, asyncio.CancelledError):
+                raise
             except Exception:
                 logger.exception(f"Error sending {admin_id}")
+
+    async def _delete_message_callback(
+        self, callback_query: CallbackQuery
+    ) -> None:
+        """Delete message on button click."""
+        _ = await callback_query.message.delete()  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownVariableType]
+        _ = await callback_query.answer()
 
 
 async def main() -> None:
     """Point of entry."""
-    parser = Parser()
-    await parser.start_parsing()
-    await asyncio.sleep(99999999)
+    await Parser().run()
 
 
 if __name__ == "__main__":
